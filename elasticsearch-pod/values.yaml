@@ -1,0 +1,18 @@
+appVersion: 6.5.4
+image:
+    tag: 6.5.4
+cluster:
+    env:
+        MINIMUM_MASTER_NODES: "1"
+client:
+    serviceType: NodePort
+    httpNodePort: 30010
+master:
+    replicas: 2
+    persistence:
+        storageClass: "nfs-client"
+data:
+    persistence:
+        storageClass: "nfs-client"
+client:
+    exposeTransportPort: true

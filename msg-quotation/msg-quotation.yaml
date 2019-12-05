@@ -1,0 +1,105 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: msg-quotation-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 10Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/msg-quotation
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: msg-quotation
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: msg-quotation
+  namespace: rc-daiichi
+  labels:
+    app: msg-quotation
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: msg-quotation
+    spec:
+      volumes:
+      - name: msg-quotation
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi-rc.dxc.com"
+      containers:
+      - name: msg-quotation
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-2.0
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "msg-quotation"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: msg-quotation
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 1008
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 1008
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msg-quotation
+  namespace: rc-daiichi
+  labels:
+    app: msg-quotation
+spec:
+  type: ClusterIP
+  ports:
+  - port: 1008
+    targetPort: 1008
+    protocol: TCP
+    name: msg-quotation
+  selector:
+    app: msg-quotation

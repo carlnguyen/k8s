@@ -1,0 +1,97 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: infra-vpms-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 10Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/infra-vpms
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: infra-vpms
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infra-vpms
+  namespace: rc-daiichi
+  labels:
+    app: infra-vpms
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 81
+    protocol: TCP
+    name: infra-vpms
+  selector:
+    app: infra-vpms
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: infra-vpms
+  namespace: rc-daiichi
+  labels:
+    app: infra-vpms
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: infra-vpms
+    spec:
+      volumes:
+      - name: infra-vpms
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      containers:
+      - name: infra-vpms
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-vpms
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos/vpms-server/client"
+          name: infra-vpms
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 81
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 81
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred

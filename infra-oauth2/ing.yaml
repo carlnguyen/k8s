@@ -1,0 +1,21 @@
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: infra-oauth2
+  namespace: ifev6
+  annotations:
+    nginx.ingress.kubernetes.io/app-root: /ife-infra-oauth2
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - ifev6.dxc.com
+    secretName: ifev6
+  rules:
+    - host: ifev6.dxc.com
+      http:
+        paths:
+        - path: /ife-infra-oauth2
+          backend:
+            serviceName: infra-oauth2
+            servicePort: 80

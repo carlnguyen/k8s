@@ -1,0 +1,105 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: msg-print-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 10Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/msg-print
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: msg-print
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: msg-print
+  namespace: rc-daiichi
+  labels:
+    app: msg-print
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: msg-print
+    spec:
+      volumes:
+      - name: msg-print
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi.dxc.com"
+      containers:
+      - name: msg-print
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-print
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "msg-print"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: msg-print
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 1007
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 1007
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msg-print
+  namespace: rc-daiichi
+  labels:
+    app: msg-print
+spec:
+  type: ClusterIP
+  ports:
+  - port: 1007
+    targetPort: 1007
+    protocol: TCP
+    name: msg-print
+  selector:
+    app: msg-print

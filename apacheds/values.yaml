@@ -1,0 +1,10 @@
+kind: Service
+apiVersion: v1
+metadata:
+  name: apacheds
+  namespace: rc-daiichi
+spec:
+  type: ExternalName
+  externalName: apacheds.ci-daiichi.svc.cluster.local
+  ports:
+  - port: 10389

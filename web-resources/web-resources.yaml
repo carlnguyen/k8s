@@ -1,0 +1,126 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: web-resources-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 10Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/web-resources
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: web-resources
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-resources
+  namespace: rc-daiichi
+  labels:
+    app: web-resources
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8085
+    protocol: TCP
+    name: web-resources
+  selector:
+    app: web-resources
+---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: web-resources
+  namespace: rc-daiichi
+  labels:
+    app: web-resources
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: web-resources
+    spec:
+      volumes:
+      - name: web-resources
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi-rc.dxc.com"
+      containers:
+      - name: web-resources
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-2.0
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "web-resources"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: web-resources
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 8085
+          initialDelaySeconds: 60
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 8085
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 10
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: web-resources
+  namespace: rc-daiichi
+  annotations:
+    nginx.ingress.kubernetes.io/app-root: /ife-web-uic-resources
+spec:
+  tls:
+  - hosts:
+    - daiichi-rc.dxc.com
+    secretName: daiichi-rc
+  rules:
+    - host: daiichi-rc.dxc.com
+      http:
+        paths:
+        - backend:
+            serviceName: web-resources
+            servicePort: 80
+          path: /ife-web-uic-resources

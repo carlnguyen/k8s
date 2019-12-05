@@ -1,0 +1,90 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: elasticsearch
+  namespace: rc-daiichi
+  labels:
+    app: elasticsearch
+spec:
+  selector:
+    matchLabels:
+      app: elasticsearch
+  serviceName: "elasticsearch"
+  replicas: 2
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+    spec:
+      initContainers:
+      - name: init-myservice
+        image: busybox
+        command: ['sh', '-c', 'sysctl -w vm.max_map_count=262144']
+        securityContext:
+          privileged: true
+      containers:
+      - name: elasticsearch
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:elasticsearch
+        imagePullPolicy: Always
+        #command: ["/bin/bash", "-c", "mkdir -p /home/data/elk-6.5.4 && chown -R elasticsearch:elasticsearch /home/data/elk-6.5.4"]
+        env:
+          - name: MIN_MASTER_NODE
+            value: "1"
+        resources:
+          limits:
+            memory: 3Gi
+          requests:
+            memory: 2Gi
+        volumeMounts:
+        - mountPath: "/home/data/"
+          name: data
+        livenessProbe:
+          tcpSocket:
+            port: 9300
+          initialDelaySeconds: 300
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 10
+        readinessProbe:
+          tcpSocket:
+            port: 9300
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 10
+          initialDelaySeconds: 30
+      imagePullSecrets:
+      - name: regcred
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+      annotations:
+        volume.beta.kubernetes.io/storage-class: "nfs-client"
+    spec:
+      accessModes: [ "ReadWriteMany" ]
+      resources:
+        requests:
+          storage: 30Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: rc-daiichi
+  labels:
+    app: elasticsearch
+spec:
+  type: NodePort
+  ports:
+  - port: 9300
+    targetPort: 9300
+    protocol: TCP
+    name: transport
+  - port: 9200
+    targetPort: 9200
+    nodePort: 30015
+    protocol: TCP
+    name: rest-api
+  selector:
+    app: elasticsearch
+

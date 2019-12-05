@@ -1,0 +1,105 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: msg-underwriting-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 20Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/msg-underwriting
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: msg-underwriting
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: msg-underwriting
+  namespace: rc-daiichi
+  labels:
+    app: msg-underwriting
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: msg-underwriting
+    spec:
+      volumes:
+      - name: msg-underwriting
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi-rc.dxc.com"
+      containers:
+      - name: msg-underwriting
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-2.0
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "msg-underwriting"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: msg-underwriting
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 1010
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 1010
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msg-underwriting
+  namespace: rc-daiichi
+  labels:
+    app: msg-underwriting
+spec:
+  type: ClusterIP
+  ports:
+  - port: 1010
+    targetPort: 1010
+    protocol: TCP
+    name: msg-underwriting
+  selector:
+    app: msg-underwriting

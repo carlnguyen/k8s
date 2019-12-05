@@ -1,0 +1,105 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: msg-dms-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 10Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/msg-dms
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: msg-dms
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: msg-dms
+  namespace: rc-daiichi
+  labels:
+    app: msg-dms
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: msg-dms
+    spec:
+      volumes:
+      - name: msg-dms
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi-rc.dxc.com"
+      containers:
+      - name: msg-dms
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-2.0
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "msg-dms"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: msg-dms
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 1004
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 1004
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msg-dms
+  namespace: rc-daiichi
+  labels:
+    app: msg-dms
+spec:
+  type: ClusterIP
+  ports:
+  - port: 1004
+    targetPort: 1004
+    protocol: TCP
+    name: msg-dms
+  selector:
+    app: msg-dms

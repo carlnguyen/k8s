@@ -1,0 +1,130 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: infra-oauth2-rc
+# spec:
+  # capacity:
+    # storage: 10Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/infra-oauth2
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: infra-oauth2
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: infra-oauth2
+  namespace: rc-daiichi
+  labels:
+    app: infra-oauth2
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 9999
+    protocol: TCP
+    name: infra-oauth2
+  selector:
+    app: infra-oauth2
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: infra-oauth2
+  namespace: rc-daiichi
+  labels:
+    app: infra-oauth2
+spec:
+  selector:
+    matchLabels:
+      app: infra-oauth2
+  serviceName: "infra-oauth2"
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: infra-oauth2
+    spec:
+      volumes:
+      - name: infra-oauth2
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi-rc.dxc.com"
+      containers:
+      - name: infra-oauth2
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-2.0
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "infra-oauth2"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: infra-oauth2
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 9999
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 9999
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: networking.k8s.io/v1beta1
+kind: Ingress
+metadata:
+  name: infra-oauth2
+  namespace: rc-daiichi
+  annotations:
+    nginx.ingress.kubernetes.io/app-root: /ife-infra-oauth2
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+  - hosts:
+    - daiichi-rc.dxc.com
+    secretName: daiichi-rc
+  rules:
+    - host: daiichi-rc.dxc.com
+      http:
+        paths:
+        - path: /ife-infra-oauth2
+          backend:
+            serviceName: infra-oauth2
+            servicePort: 80
+          

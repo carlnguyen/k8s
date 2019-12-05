@@ -1,0 +1,110 @@
+# apiVersion: v1
+# kind: PersistentVolume
+# metadata:
+  # name: msg-submission-rc
+  # namespace: rc-daiichi
+# spec:
+  # capacity:
+    # storage: 20Gi
+  # accessModes:
+    # - ReadWriteMany
+  # persistentVolumeReclaimPolicy: Retain
+  # mountOptions:
+    # - hard
+    # - nfsvers=4.1
+  # nfs:
+    # path: /nfs/deploy/ipos-rc/msg-submission
+    # server: 20.203.162.8
+# ---
+# kind: PersistentVolumeClaim
+# apiVersion: v1
+# metadata:
+  # name: msg-submission
+  # namespace: rc-daiichi
+# spec:
+  # accessModes:
+    # - ReadWriteMany
+  # resources:
+    # requests:
+      # storage: 10Gi
+# ---
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: msg-submission
+  namespace: rc-daiichi
+  labels:
+    app: msg-submission
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: msg-submission
+    spec:
+      volumes:
+      - name: msg-submission
+        persistentVolumeClaim:
+          claimName: rc-deploy
+      - name: ihub-shared
+        persistentVolumeClaim:
+            claimName: ihub-shared
+      hostAliases:
+        - ip: "20.203.162.250"
+          hostnames:
+          - "daiichi-rc.dxc.com"
+      containers:
+      - name: msg-submission
+        image: ec2-52-220-108-251.ap-southeast-1.compute.amazonaws.com:443/ttran270:ipos-2.0
+        imagePullPolicy: IfNotPresent
+        env:
+          - name: HOST
+            value: "daiichi-rc.dxc.com"
+          - name: IPOS_SERVICE
+            value: "msg-submission"
+        command: ["/bin/sh"]
+        args: ["-c", "openssl s_client -showcerts -connect $HOST:443 -servername $HOST  </dev/null | sed -ne '/-BEGIN CERTIFICATE-/,/-END CERTIFICATE-/p' > $HOST.pem; openssl x509 -inform PEM -in $HOST.pem -outform DER -out $HOST.cer; keytool -import -alias $HOST -keystore /usr/lib/jvm/java-8-openjdk-amd64/jre/lib/security/cacerts -file $HOST.cer -storepass changeit -noprompt; mkdir -p /ihub-shared; cd $IPOS_SERVICE; java -jar *.jar"]
+        resources:
+          limits:
+            memory: 2Gi
+          requests:
+            memory: 1Gi
+        volumeMounts:
+        - mountPath: "/home/ipos"
+          name: msg-submission
+        - mountPath: "/ihub-shared"
+          name: ihub-shared
+        securityContext:
+          privileged: true
+        livenessProbe:
+          tcpSocket:
+            port: 1009
+          initialDelaySeconds: 60
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+        readinessProbe:
+          tcpSocket:
+            port: 1009
+          periodSeconds: 10
+          successThreshold: 1
+          timeoutSeconds: 1
+      imagePullSecrets:
+      - name: regcred
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msg-submission
+  namespace: rc-daiichi
+  labels:
+    app: msg-submission
+spec:
+  type: ClusterIP
+  ports:
+  - port: 1009
+    targetPort: 1009
+    protocol: TCP
+    name: msg-submission
+  selector:
+    app: msg-submission
