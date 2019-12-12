@@ -1,8 +1,11 @@
 variable "region" {}
-###########
+#####
 provider "aws" {
   version = "~> 2.0"
   region  = "${var.region}"
+}
+terraform {
+  backend "s3" {}
 }
 data "aws_ami" "ubuntu" {
   most_recent = true
@@ -18,7 +21,7 @@ data "aws_ami" "ubuntu" {
   }
   owners = ["099720109477"] # Canonical
 }
-########### Variable for master node
+##### Variable for master node
 variable "EC2_TYPE" {}
 variable "AWS_KEYPAIR" {}
 variable "EC2_TAG" {}
